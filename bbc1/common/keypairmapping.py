@@ -16,8 +16,14 @@ limitations under the License.
 """
 
 import binascii
+import sys
 
-import bbclib
+sys.path.append("../../")
+from bbc1.common import bbclib
+from bbc1.app import bbc_app
+from bbc1.core.bbc_config import DEFAULT_CORE_PORT
+from bbc1.common.message_key_types import KeyType
+from bbc1.common.bbc_error import *
 
 # For debug
 import os
@@ -60,32 +66,42 @@ def create_keymap_tx(user_id, approver_id, sig_keypair, pubkeys, ref_tx = None):
         transaction.get_sig_index(user_id=user_id)
         transaction.add_signature(user_id=user_id, signature=sig)
 
-    insert_tx_bbc_core(transaction)
-    return transaction
+    txid = insert_tx_bbc_core(transaction, user_id)
+    return txid
 
-def add_key_to_keymap(ref_tx, user_id, approver_id, sig_key, addpubkey):
+def add_key_to_keymap(ref_txid, user_id, approver_id, sig_key, addpubkey):
+    ref_tx = get_tx_from_txid(ref_txid, user_id)
+    assert ref_tx
+
     old_keys = []
     for old_key_event in ref_tx.events:
         old_key = old_key_event.asset.asset_body
         old_keys.append(old_key)
     old_keys.append(addpubkey)
     transaction = create_keymap_tx(user_id, approver_id, sig_key, old_keys, ref_tx)
-    insert_tx_bbc_core(transaction)
     return transaction
 
-def rm_key_from_keymap(ref_tx, user_id, approver_id, sig_key, rmpubkey):
+def rm_key_from_keymap(ref_txid, user_id, approver_id, sig_key, rmpubkey):
+    ref_tx = get_tx_from_txid(ref_txid, user_id)
+    assert ref_tx
+
     old_keys = []
     for old_key_event in ref_tx.events:
         old_key = old_key_event.asset.asset_body
         old_keys.append(old_key)
     old_keys.remove(rmpubkey)
     transaction = create_keymap_tx(user_id, approver_id, sig_key, old_keys, ref_tx)
-    insert_tx_bbc_core(transaction)
     return transaction
 
-def verify_sig_by_keymap(tx, keymaptx):
-    pubkeys = []
+def verify_sig_by_keymap(txid, keymap_txid, user_id):
+    tx = get_tx_from_txid(txid, user_id)
+    assert tx
     digest = tx.digest()
+
+    keymaptx = get_tx_from_txid(keymap_txid, user_id)
+    assert keymaptx
+
+    pubkeys = []
     for pubkey_event in keymaptx.events:
         pubkey = pubkey_event.asset.asset_body
         sig = bbclib.BBcSignature()
@@ -104,16 +120,58 @@ def make_empty_tx(user_id, approver_id, sig_keypair):
                             public_key=sig_keypair.public_key)
     transaction.get_sig_index(user_id=user_id)
     transaction.add_signature(user_id=user_id, signature=sig)
-    insert_tx_bbc_core(transaction)
-    return transaction
+    txid = insert_tx_bbc_core(transaction, user_id)
+    return txid
+
+
+
+
+def asset_group_setup():
+    tmpclient = bbc_app.BBcAppClient(port=DEFAULT_CORE_PORT, loglevel="all")
+    tmpclient.domain_setup(DOMAIN_ID, "simple_cluster")
+    tmpclient.callback.synchronize()
+    tmpclient.register_asset_group(domain_id=DOMAIN_ID, asset_group_id=ASSET_GROUP_ID)
+    tmpclient.callback.synchronize()
+    tmpclient.unregister_from_core()
+    print("Domain %s and asset_group %s are created." % (binascii.b2a_hex(DOMAIN_ID[:4]).decode(),
+                                                        binascii.b2a_hex(ASSET_GROUP_ID[:4]).decode()))
+    print("Setup is done.")
+
+def setup_bbc_app_client(user_id):
+    bbc_app_client = bbc_app.BBcAppClient(port=DEFAULT_CORE_PORT, loglevel="all")
+    bbc_app_client.set_user_id(user_id)
+    bbc_app_client.set_asset_group_id(ASSET_GROUP_ID)
+    bbc_app_client.set_callback(bbc_app.Callback())
+    ret = bbc_app_client.register_to_core()
+    assert ret
+    return bbc_app_client
+
+def insert_tx_bbc_core(transaction, user_id):
+    print("insert tx to bbc core")
+    bbc_app_client = setup_bbc_app_client(user_id)
+
+    ret = bbc_app_client.insert_transaction(ASSET_GROUP_ID, transaction)
+    assert ret
+    response_data = bbc_app_client.callback.synchronize()
+    if response_data[KeyType.status] < ESUCCESS:
+        print("ERROR: ", response_data[KeyType.reason].decode())
+        return False
+    return  response_data[KeyType.transaction_id]
+
+def get_tx_from_txid(txid, user_id):
+    bbc_app_client = setup_bbc_app_client(user_id)
+    bbc_app_client.search_transaction(ASSET_GROUP_ID, txid)
+    response_data = bbc_app_client.callback.synchronize()
+    if response_data[KeyType.status] < ESUCCESS:
+        print("ERROR: ", response_data[KeyType.reason].decode())
+        return False
+    return bbclib.recover_transaction_object_from_rawdata(response_data[KeyType.transaction_data])
 
 # TODO
-def insert_tx_bbc_core(tx):
-    #tx.dump()
-    print("insert tx to bbc core")
-
 
 def test():
+    asset_group_setup()
+
     KEYNUM = 4
     keys = []
     for a in range(KEYNUM):
@@ -132,7 +190,7 @@ def test():
     for a in range(KEYNUM):
         pubkeys.append(binascii.b2a_hex(keys[a].public_key))
     keymaptx = create_keymap_tx(user_id, approver_id, keys[0], pubkeys)
-    assert verify_sig_by_keymap(testtx, keymaptx)
+    assert verify_sig_by_keymap(testtx, keymaptx, user_id)
 
     print("=================================================")
     print("add key to Key Mapping")
@@ -140,17 +198,17 @@ def test():
     KEYNUM = KEYNUM + 1
     addpubkey = binascii.b2a_hex(addkey.public_key)
     keymaptx = add_key_to_keymap(keymaptx, user_id, approver_id, keys[0], addpubkey)
-    assert verify_sig_by_keymap(testtx, keymaptx)
+    assert verify_sig_by_keymap(testtx, keymaptx, user_id)
 
     print("=================================================")
     print("rm key to Key Mapping")
     keymaptx = rm_key_from_keymap(keymaptx, user_id, approver_id, keys[0], addpubkey)
-    assert verify_sig_by_keymap(testtx, keymaptx)
+    assert verify_sig_by_keymap(testtx, keymaptx, user_id)
 
     print("=================================================")
     print("verify sig by key not in Key Mapping")
     testtx = make_empty_tx(user_id, approver_id, addkey)
-    assert not verify_sig_by_keymap(testtx, keymaptx)
+    assert not verify_sig_by_keymap(testtx, keymaptx, user_id)
 
     for a in range(KEYNUM):
         os.remove("./" + str(a))
