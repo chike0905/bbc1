@@ -31,7 +31,6 @@ import os
 from IPython import embed
 from IPython.terminal.embed import InteractiveShellEmbed
 
-DEFAULT_CORE_PORT = 9000
 ASSET_GROUP_ID = bbclib.get_new_id("keychain", include_timestamp=False)
 DOMAIN_ID = bbclib.get_new_id("keychain", include_timestamp=False)
 
