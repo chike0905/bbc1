@@ -17,6 +17,7 @@ limitations under the License.
 
 import binascii
 import sys
+import sqlite3
 
 sys.path.append("../../")
 from bbc1.common import bbclib
@@ -25,7 +26,7 @@ from bbc1.core.bbc_config import DEFAULT_CORE_PORT
 from bbc1.common.message_key_types import KeyType
 from bbc1.common.bbc_error import *
 
-# For debug
+# For test
 import os
 
 from IPython import embed
@@ -33,6 +34,14 @@ from IPython.terminal.embed import InteractiveShellEmbed
 
 ASSET_GROUP_ID = bbclib.get_new_id("keychain", include_timestamp=False)
 DOMAIN_ID = bbclib.get_new_id("keychain", include_timestamp=False)
+
+dbpath = "identifier.sqlite"
+con = sqlite3.connect(dbpath)
+cur = con.execute("SELECT * FROM sqlite_master WHERE type='table' and name='identifier'")
+if cur.fetchone() == None:
+    print("Create identifier table")
+    con.execute("CREATE TABLE 'identifier' (id INTEGER PRIMARY KEY AUTOINCREMENT, identifer TEXT, txid TEXT,   created_at TIMESTAMP DEFAULT (DATETIME('now','localtime')))")
+    con.commit()
 
 def create_keypair(keyname):
     keypair = bbclib.KeyPair()
@@ -42,6 +51,16 @@ def create_keypair(keyname):
     with open(keyname+".pub", "wb") as fout:
         fout.write(keypair.public_key)
     return keypair
+
+def create_keymap(user_id, sig_keypair, pubkeys):
+    res = create_keymap_tx(user_id, user_id, sig_keypair, pubkeys, ref_tx = None)
+    if res:
+        sql = u"insert into identifier(identifer, txid) values (?, ?)"
+        con.execute(sql, (binascii.hexlify(user_id), binascii.hexlify(res)))
+        con.commit()
+        return True
+    else:
+        return False
 
 def create_keymap_tx(user_id, approver_id, sig_keypair, pubkeys, ref_tx = None):
     transaction = bbclib.make_transaction_for_base_asset(asset_group_id=ASSET_GROUP_ID, event_num=len(pubkeys))
@@ -188,7 +207,7 @@ def test():
     pubkeys = []
     for a in range(KEYNUM):
         pubkeys.append(binascii.b2a_hex(keys[a].public_key))
-    keymaptx = create_keymap_tx(user_id, approver_id, keys[0], pubkeys)
+    keymaptx = create_keymap(user_id, keys[0], pubkeys)
     assert verify_sig_by_keymap(testtx, keymaptx, user_id)
 
     print("=================================================")
