@@ -58,6 +58,7 @@ def create_keymap(user_id, sig_keypair, pubkeys):
         sql = u"insert into identifier(identifier, txid) values (?, ?)"
         con.execute(sql, (binascii.hexlify(user_id), binascii.hexlify(res)))
         con.commit()
+        print(res)
         return True
     else:
         return False
@@ -69,6 +70,7 @@ def create_keymap_tx(user_id, approver_id, sig_keypair, pubkeys, ref_tx = None):
         transaction.events[a].asset.add(user_id=user_id, asset_body=pubkeys[a])
 
     if ref_tx:
+        #TODO it can verify any key in ref transaction
         if binascii.hexlify(sig_keypair.public_key) == binascii.hexlify(ref_tx.signatures[0].pubkey):
             reference = bbclib.add_reference_to_transaction(ASSET_GROUP_ID, transaction, ref_tx, 0)
             sig = transaction.sign(key_type=bbclib.KeyType.ECDSA_SECP256k1,
@@ -99,6 +101,7 @@ def add_key_to_keymap(user_id, sig_key, addpubkey):
         old_keys.append(old_key)
     old_keys.append(addpubkey)
     res = create_keymap_tx(user_id, user_id, sig_key, old_keys, ref_tx)
+    assert res
     if res:
         sql = u"update identifier set txid = (?) where id = (?);"
         con.execute(sql, (binascii.hexlify(res), id))
@@ -117,6 +120,7 @@ def rm_key_from_keymap(user_id,  sig_key, rmpubkey):
     for old_key_event in ref_tx.events:
         old_key = old_key_event.asset.asset_body
         old_keys.append(old_key)
+
     old_keys.remove(rmpubkey)
     res = create_keymap_tx(user_id, user_id, sig_key, old_keys, ref_tx)
     if res:
@@ -243,7 +247,7 @@ def test():
     addkey = create_keypair(str(KEYNUM))
     KEYNUM = KEYNUM + 1
     addpubkey = binascii.b2a_hex(addkey.public_key)
-    keymaptx = add_key_to_keymap(user_id, keys[0], addpubkey)
+    keymaptx = add_key_to_keymap(user_id, keys[1], addpubkey)
     assert verify_sig_by_keymap(testtx, user_id)
 
     print("=================================================")
