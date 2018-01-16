@@ -58,7 +58,6 @@ def create_keymap(user_id, sig_keypair, pubkeys):
         sql = u"insert into identifier(identifier, txid) values (?, ?)"
         con.execute(sql, (binascii.hexlify(user_id), binascii.hexlify(res)))
         con.commit()
-        print(res)
         return True
     else:
         return False
@@ -71,14 +70,14 @@ def create_keymap_tx(user_id, approver_id, sig_keypair, pubkeys, ref_tx = None):
 
     if ref_tx:
         #TODO it can verify any key in ref transaction
-        if binascii.hexlify(sig_keypair.public_key) == binascii.hexlify(ref_tx.signatures[0].pubkey):
-            reference = bbclib.add_reference_to_transaction(ASSET_GROUP_ID, transaction, ref_tx, 0)
-            sig = transaction.sign(key_type=bbclib.KeyType.ECDSA_SECP256k1,
-                                    private_key=sig_keypair.private_key,
-                                    public_key=sig_keypair.public_key)
-            transaction.references[0].add_signature(user_id=user_id, signature=sig)
-        else:
-            return False
+        #if binascii.hexlify(sig_keypair.public_key) == binascii.hexlify(ref_tx.signatures[0].pubkey):
+        reference = bbclib.add_reference_to_transaction(ASSET_GROUP_ID, transaction, ref_tx, 0)
+        sig = transaction.sign(key_type=bbclib.KeyType.ECDSA_SECP256k1,
+                                private_key=sig_keypair.private_key,
+                                public_key=sig_keypair.public_key)
+        transaction.references[0].add_signature(user_id=user_id, signature=sig)
+        #else:
+        #    return False
     else:
         sig = transaction.sign(key_type=bbclib.KeyType.ECDSA_SECP256k1,
                                 private_key=sig_keypair.private_key,
@@ -142,7 +141,7 @@ def get_keymap_txid_from_identifier(user_id):
         return result[0][0], keymap_txid
 
 
-def verify_sig_by_keymap(txid,  user_id):
+def verify_sig_by_keymap(txid, user_id):
     tx = get_tx_from_txid(txid, user_id)
     assert tx
     digest = tx.digest()
@@ -232,7 +231,9 @@ def test():
 
 
     print("Create testTX")
-    testtx = make_empty_tx(user_id, approver_id, keys[0])
+    testtxs = []
+    for a in range(KEYNUM):
+        testtxs.append(make_empty_tx(user_id, approver_id, keys[a]))
 
     print("=================================================")
     print("Create Key Mapping TX")
@@ -240,25 +241,36 @@ def test():
     for a in range(KEYNUM):
         pubkeys.append(binascii.b2a_hex(keys[a].public_key))
     keymaptx = create_keymap(user_id, keys[0], pubkeys)
-    assert verify_sig_by_keymap(testtx, user_id)
-
-    print("=================================================")
-    print("add key to Key Mapping")
-    addkey = create_keypair(str(KEYNUM))
-    KEYNUM = KEYNUM + 1
-    addpubkey = binascii.b2a_hex(addkey.public_key)
-    keymaptx = add_key_to_keymap(user_id, keys[1], addpubkey)
-    assert verify_sig_by_keymap(testtx, user_id)
-
-    print("=================================================")
-    print("rm key to Key Mapping")
-    keymaptx = rm_key_from_keymap(user_id, keys[0], addpubkey)
-    assert verify_sig_by_keymap(testtx, user_id)
+    for a in range(KEYNUM):
+        print("Verify tx signed by key %s by keymapping" % str(a))
+        assert verify_sig_by_keymap(testtxs[a], user_id)
+        print("Pass")
 
     print("=================================================")
     print("verify sig by key not in Key Mapping")
+    addkey = create_keypair(str(KEYNUM))
+    KEYNUM = KEYNUM + 1
     testtx = make_empty_tx(user_id, approver_id, addkey)
     assert not verify_sig_by_keymap(testtx, user_id)
+    print("Not Pass")
+
+    print("=================================================")
+    print("add key to Key Mapping")
+    addpubkey = binascii.b2a_hex(addkey.public_key)
+    keymaptx = add_key_to_keymap(user_id, keys[1], addpubkey)
+    for a in range(KEYNUM-1):
+        print("Verify tx signed by key %s by keymapping" % str(a))
+        assert verify_sig_by_keymap(testtxs[a], user_id)
+        print("Pass")
+
+    print("=================================================")
+    print("rm key to Key Mapping")
+    keymaptx = rm_key_from_keymap(user_id, keys[2], addpubkey)
+    for a in range(KEYNUM-1):
+        print("Verify tx signed by key %s by keymapping" % str(a))
+        assert verify_sig_by_keymap(testtxs[a], user_id)
+        print("Pass")
+
 
     for a in range(KEYNUM):
         os.remove("./" + str(a))
