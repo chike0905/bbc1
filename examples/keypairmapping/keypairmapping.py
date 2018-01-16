@@ -40,7 +40,7 @@ con = sqlite3.connect(dbpath)
 cur = con.execute("SELECT * FROM sqlite_master WHERE type='table' and name='identifier'")
 if cur.fetchone() == None:
     print("Create identifier table")
-    con.execute("CREATE TABLE 'identifier' (id INTEGER PRIMARY KEY AUTOINCREMENT, identifer TEXT, txid TEXT,   created_at TIMESTAMP DEFAULT (DATETIME('now','localtime')))")
+    con.execute("CREATE TABLE 'identifier' (id INTEGER PRIMARY KEY AUTOINCREMENT, identifier TEXT, txid TEXT,   created_at TIMESTAMP DEFAULT (DATETIME('now','localtime')))")
     con.commit()
 
 def create_keypair(keyname):
@@ -55,7 +55,7 @@ def create_keypair(keyname):
 def create_keymap(user_id, sig_keypair, pubkeys):
     res = create_keymap_tx(user_id, user_id, sig_keypair, pubkeys, ref_tx = None)
     if res:
-        sql = u"insert into identifier(identifer, txid) values (?, ?)"
+        sql = u"insert into identifier(identifier, txid) values (?, ?)"
         con.execute(sql, (binascii.hexlify(user_id), binascii.hexlify(res)))
         con.commit()
         return True
@@ -111,10 +111,15 @@ def rm_key_from_keymap(ref_txid, user_id, approver_id, sig_key, rmpubkey):
     transaction = create_keymap_tx(user_id, approver_id, sig_key, old_keys, ref_tx)
     return transaction
 
-def verify_sig_by_keymap(txid, keymap_txid, user_id):
+def verify_sig_by_keymap(txid,  user_id):
     tx = get_tx_from_txid(txid, user_id)
     assert tx
     digest = tx.digest()
+
+    sql = "select txid from identifier where identifier = (?)"
+    cur.execute(sql,(binascii.hexlify(user_id), ))
+    result = cur.fetchall()
+    keymap_txid = binascii.unhexlify(result[0][0])
 
     keymaptx = get_tx_from_txid(keymap_txid, user_id)
     assert keymaptx
@@ -208,8 +213,8 @@ def test():
     for a in range(KEYNUM):
         pubkeys.append(binascii.b2a_hex(keys[a].public_key))
     keymaptx = create_keymap(user_id, keys[0], pubkeys)
-    assert verify_sig_by_keymap(testtx, keymaptx, user_id)
-
+    assert verify_sig_by_keymap(testtx, user_id)
+    '''
     print("=================================================")
     print("add key to Key Mapping")
     addkey = create_keypair(str(KEYNUM))
@@ -227,7 +232,7 @@ def test():
     print("verify sig by key not in Key Mapping")
     testtx = make_empty_tx(user_id, approver_id, addkey)
     assert not verify_sig_by_keymap(testtx, keymaptx, user_id)
-
+    '''
     for a in range(KEYNUM):
         os.remove("./" + str(a))
         os.remove("./" + str(a) + ".pub")
