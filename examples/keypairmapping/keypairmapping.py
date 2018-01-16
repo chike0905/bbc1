@@ -87,7 +87,9 @@ def create_keymap_tx(user_id, approver_id, sig_keypair, pubkeys, ref_tx = None):
     txid = insert_tx_bbc_core(transaction, user_id)
     return txid
 
-def add_key_to_keymap(ref_txid, user_id, approver_id, sig_key, addpubkey):
+def add_key_to_keymap(user_id, sig_key, addpubkey):
+    id, ref_txid = get_keymap_txid_from_identifier(user_id)
+    assert ref_txid
     ref_tx = get_tx_from_txid(ref_txid, user_id)
     assert ref_tx
 
@@ -96,10 +98,18 @@ def add_key_to_keymap(ref_txid, user_id, approver_id, sig_key, addpubkey):
         old_key = old_key_event.asset.asset_body
         old_keys.append(old_key)
     old_keys.append(addpubkey)
-    transaction = create_keymap_tx(user_id, approver_id, sig_key, old_keys, ref_tx)
-    return transaction
+    res = create_keymap_tx(user_id, user_id, sig_key, old_keys, ref_tx)
+    if res:
+        sql = u"update identifier set txid = (?) where id = (?);"
+        con.execute(sql, (binascii.hexlify(res), id))
+        con.commit()
+        return True
+    else:
+        return False
 
-def rm_key_from_keymap(ref_txid, user_id, approver_id, sig_key, rmpubkey):
+def rm_key_from_keymap(user_id,  sig_key, rmpubkey):
+    id, ref_txid = get_keymap_txid_from_identifier(user_id)
+    assert ref_txid
     ref_tx = get_tx_from_txid(ref_txid, user_id)
     assert ref_tx
 
@@ -108,18 +118,33 @@ def rm_key_from_keymap(ref_txid, user_id, approver_id, sig_key, rmpubkey):
         old_key = old_key_event.asset.asset_body
         old_keys.append(old_key)
     old_keys.remove(rmpubkey)
-    transaction = create_keymap_tx(user_id, approver_id, sig_key, old_keys, ref_tx)
-    return transaction
+    res = create_keymap_tx(user_id, user_id, sig_key, old_keys, ref_tx)
+    if res:
+        sql = u"update identifier set txid = (?) where id = (?);"
+        con.execute(sql, (binascii.hexlify(res), id))
+        con.commit()
+        return True
+    else:
+        return False
+
+def get_keymap_txid_from_identifier(user_id):
+    sql = "select id, txid from identifier where identifier = (?)"
+    cur.execute(sql,(binascii.hexlify(user_id), ))
+    result = cur.fetchall()
+    if len(result) == 0:
+        return False
+    else:
+        keymap_txid = binascii.unhexlify(result[0][1])
+        return result[0][0], keymap_txid
+
 
 def verify_sig_by_keymap(txid,  user_id):
     tx = get_tx_from_txid(txid, user_id)
     assert tx
     digest = tx.digest()
 
-    sql = "select txid from identifier where identifier = (?)"
-    cur.execute(sql,(binascii.hexlify(user_id), ))
-    result = cur.fetchall()
-    keymap_txid = binascii.unhexlify(result[0][0])
+    id, keymap_txid = get_keymap_txid_from_identifier(user_id)
+    assert keymap_txid
 
     keymaptx = get_tx_from_txid(keymap_txid, user_id)
     assert keymaptx
@@ -145,8 +170,6 @@ def make_empty_tx(user_id, approver_id, sig_keypair):
     transaction.add_signature(user_id=user_id, signature=sig)
     txid = insert_tx_bbc_core(transaction, user_id)
     return txid
-
-
 
 
 def asset_group_setup():
@@ -214,25 +237,25 @@ def test():
         pubkeys.append(binascii.b2a_hex(keys[a].public_key))
     keymaptx = create_keymap(user_id, keys[0], pubkeys)
     assert verify_sig_by_keymap(testtx, user_id)
-    '''
+
     print("=================================================")
     print("add key to Key Mapping")
     addkey = create_keypair(str(KEYNUM))
     KEYNUM = KEYNUM + 1
     addpubkey = binascii.b2a_hex(addkey.public_key)
-    keymaptx = add_key_to_keymap(keymaptx, user_id, approver_id, keys[0], addpubkey)
-    assert verify_sig_by_keymap(testtx, keymaptx, user_id)
+    keymaptx = add_key_to_keymap(user_id, keys[0], addpubkey)
+    assert verify_sig_by_keymap(testtx, user_id)
 
     print("=================================================")
     print("rm key to Key Mapping")
-    keymaptx = rm_key_from_keymap(keymaptx, user_id, approver_id, keys[0], addpubkey)
-    assert verify_sig_by_keymap(testtx, keymaptx, user_id)
+    keymaptx = rm_key_from_keymap(user_id, keys[0], addpubkey)
+    assert verify_sig_by_keymap(testtx, user_id)
 
     print("=================================================")
     print("verify sig by key not in Key Mapping")
     testtx = make_empty_tx(user_id, approver_id, addkey)
-    assert not verify_sig_by_keymap(testtx, keymaptx, user_id)
-    '''
+    assert not verify_sig_by_keymap(testtx, user_id)
+
     for a in range(KEYNUM):
         os.remove("./" + str(a))
         os.remove("./" + str(a) + ".pub")
