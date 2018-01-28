@@ -195,6 +195,19 @@ class BBcCoreService:
         msg[KeyType.reason] = txt
         self.send_message(msg)
 
+    #TODO replace function for api
+    def http_check(self, buf):
+        try:
+            tmp = buf.decode("utf-8")
+            tmp = tmp.splitlines()
+            tmp = tmp[0].split(" ")
+            if tmp[-1].count("HTTP"):
+                return True
+            else:
+                return False
+        except UnicodeDecodeError:
+            return False
+
     def handler(self, socket, address):
         """
         Message wait loop
@@ -213,6 +226,14 @@ class BBcCoreService:
                 buf = socket.recv(8192)
                 if len(buf) == 0:
                     break
+
+                if self.http_check(buf):
+                    print("This is HTTP connection")
+
+                    socket.shutdown(py_socket.SHUT_RDWR)
+                    socket.close()
+                    break
+
                 msg_parser.recv(buf)
                 while True:
                     msg = msg_parser.parse()
