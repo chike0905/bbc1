@@ -30,6 +30,7 @@ import traceback
 #for API
 import textwrap
 import json
+import base64
 
 import sys
 sys.path.extend(["../../"])
@@ -224,9 +225,87 @@ class BBcCoreService:
             msg = {"code":-32600, "message":"Invalid Request"}
             return False, msg
 
+    def hex2str(self, hex):
+        return base64.b64encode(hex).decode("utf-8")
+
     def rpc_proccess(self, request):
         if request["method"] == "bbc1_hello":
             result = "Access bbc1 over HTTP!"
+        elif request["method"] == "bbc1_config":
+            result = self.config.get_config()
+        elif request["method"] == "bbc1_GetTransaction":
+            asset_group_id = binascii.unhexlify(request["params"]["asset_group_id"])
+            txid = binascii.unhexlify(request["params"]["tx_id"])
+            source_id = binascii.unhexlify(request["params"]["user_id"])
+            query_id = request["id"]
+            res = self.search_transaction_by_txid(asset_group_id, txid, source_id, query_id)
+            txobj = bbclib.recover_transaction_object_from_rawdata(res[KeyType.transaction_data])
+
+            #txobj to json
+            txdict = {}
+            if txobj.transaction_id is not None:
+                txdict["transaction_id"] = self.hex2str(binascii.b2a_hex(txobj.transaction_id))
+            else:
+                txdict["transaction_id"] = None
+            txdict["version"] = txobj.version
+            txdict["timestamp"] = txobj.timestamp
+            txdict["Event"] = []
+            if len(txobj.events) > 0:
+                for i, evt in enumerate(txobj.events):
+                    event = {}
+                    event["asset_group_id"] = self.hex2str(binascii.b2a_hex(evt.asset_group_id))
+                    event["reference_indices"] = evt.reference_indices
+                    event["mandatory_approvers"] = []
+                    if len(evt.mandatory_approvers) > 0:
+                        for user in evt.mandatory_approvers:
+                            event["mandatory_approvers"].append(self.hex2str(binascii.b2a_hex(user)))
+                    event["option_approvers"] = []
+                    if len(evt.option_approvers) > 0:
+                        for user in evt.option_approvers:
+                            event["option_approvers"] = self.hex2str(binascii.b2a_hex(user))
+                    event["option_approver_num_numerator"] = evt.option_approver_num_numerator
+                    event["option_approver_num_denominator"] = evt.option_approver_num_denominator
+                    event["Asset"] = {}
+                    event["Asset"]["asset_id"] = self.hex2str(binascii.b2a_hex(evt.asset.asset_id))
+                    if evt.asset.user_id is not None:
+                        event["Asset"]["user_id"] = self.hex2str(binascii.b2a_hex(evt.asset.user_id))
+                    else:
+                        event["Asset"]["user_id"] = None
+                    event["Asset"]["nonce"] = self.hex2str(binascii.b2a_hex(evt.asset.nonce))
+                    event["Asset"]["file_size"] = evt.asset.asset_file_size
+                    if evt.asset.asset_file_digest is not None:
+                        event["Asset"]["file_digest"] = self.hex2str(binascii.b2a_hex(evt.asset.asset_file_digest))
+                    event["Asset"]["body_size"] = evt.asset.asset_body_size
+                    event["Asset"]["body"] = self.hex2str(binascii.b2a_hex(evt.asset.asset_body))
+                    txdict["Event"].append(event)
+            txdict["Reference"] = []
+            if len(txobj.references) > 0:
+                for i, refe in enumerate(txobj.references):
+                    ref = {}
+                    ref["asset_group_id"] = self.hex2str(binascii.b2a_hex(refe.asset_group_id))
+                    ref["transaction_id"] = self.hex2str(binascii.b2a_hex(refe.transaction_id))
+                    ref["event_index_in_ref"] = refe.event_index_in_ref
+                    ref["sig_index"] = refe.sig_indices
+                    txdict["Reference"].append(ref)
+            txdict["Cross_Ref"] = {}
+            if len(txobj.cross_refs) > 0:
+                for i, cross in enumerate(txobj.cross_refs):
+                    crossref = {}
+                    crossref["asset_group_id"] = self.hex2str(binascii.b2a_hex(cross.asset_group_id))
+                    crossref["transaction_id"] = self.hex2str(binascii.b2a_hex(cross.transaction_id))
+                    txdict["Cross_ref"].append(crossref)
+            txdict["Signature"] = []
+            if len(txobj.signatures) > 0:
+                for i, sig in enumerate(txobj.signatures):
+                    sign = {}
+                    if sig is None:
+                        sign = "*RESERVED*"
+                        continue
+                    sign["type"] = sig.type
+                    sign["signature"] = self.hex2str(binascii.b2a_hex(sig.signature))
+                    sign["pubkey"] = self.hex2str(binascii.b2a_hex(sig.pubkey))
+                    txdict["Signature"].append(sign)
+            result = txdict
         else:
             result = {"code": -32601,"message":"Method '"+request["method"]+"' not found"}
             return False, result
