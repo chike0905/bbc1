@@ -212,23 +212,38 @@ class BBcCoreService:
         except UnicodeDecodeError:
             return False
 
+    def check_json_rpc_format(self, requestbody):
+        try:
+            request = json.loads(requestbody)
+        except json.JSONDecodeError:
+            msg = {"code":-32700, "message":"Parse error"}
+            return False, msg
+        if "jsonrpc" in request and "method" in request and "id" in request:
+            return True, None
+        else:
+            msg = {"code":-32600, "message":"Invalid Request"}
+            return False, msg
+
+
     def rpc_api_handler(self, buf):
         # get request body
         tmp = buf.decode("utf-8")
         tmp = tmp.split("\r\n\r\n")
         # check json rpc
-        try:
+        res, msg = self.check_json_rpc_format(tmp[-1])
+        if res:
             request = json.loads(tmp[-1])
-            # make response
             resbody = {"jsonrpc": "2.0", "result": "Access bbc1 over HTTP!", "id": request["id"]}
             resbody = json.dumps(resbody)
-        except json.JSONDecodeError:
-            resbody = {"jsonrpc": "2.0", "error":{"code":-32700, "message":"Parse error"}, "id": "null"}
+        else:
+            resbody = {"jsonrpc": "2.0", "error":msg, "id": "null"}
             resbody = json.dumps(resbody)
 
         res = self.make_http_res(resbody)
-        '''except Exception as e:
-            #TODO TMP for debug
+
+        '''
+            #for debug
+            except Exception as e:
             status = "500 Internal Server Error"
             resbody = {"jsonrpc": "2.0", "error":{"code":-1, "message":e.args[0]}, "id":request["id"]}
             resbody = json.dumps(resbody)
