@@ -224,6 +224,14 @@ class BBcCoreService:
             msg = {"code":-32600, "message":"Invalid Request"}
             return False, msg
 
+    def rpc_proccess(self, request):
+        if request["method"] == "bbc1_hello":
+            result = "Access bbc1 over HTTP!"
+        else:
+            result = {"code": -32601,"message":"Method '"+request["method"]+"' not found"}
+            return False, result
+        return True, result
+
 
     def rpc_api_handler(self, buf):
         # get request body
@@ -233,12 +241,15 @@ class BBcCoreService:
         res, msg = self.check_json_rpc_format(tmp[-1])
         if res:
             request = json.loads(tmp[-1])
-            resbody = {"jsonrpc": "2.0", "result": "Access bbc1 over HTTP!", "id": request["id"]}
-            resbody = json.dumps(resbody)
+            res, result = self.rpc_proccess(request)
+            if res:
+                resbody = {"jsonrpc": "2.0", "result": result, "id": request["id"]}
+            else:
+                resbody = {"jsonrpc": "2.0", "error": result, "id": request["id"]}
         else:
             resbody = {"jsonrpc": "2.0", "error":msg, "id": "null"}
-            resbody = json.dumps(resbody)
 
+        resbody = json.dumps(resbody)
         res = self.make_http_res(resbody)
 
         '''
