@@ -27,6 +27,10 @@ import hashlib
 import binascii
 import traceback
 
+#for API
+import textwrap
+import json
+
 import sys
 sys.path.extend(["../../"])
 from bbc1.common import bbclib, message_key_types, logger
@@ -195,7 +199,7 @@ class BBcCoreService:
         msg[KeyType.reason] = txt
         self.send_message(msg)
 
-    #TODO replace function for api
+    #TODO function for api
     def http_check(self, buf):
         try:
             tmp = buf.decode("utf-8")
@@ -207,6 +211,40 @@ class BBcCoreService:
                 return False
         except UnicodeDecodeError:
             return False
+
+    def rpc_api_handler(self, buf):
+        # get request body
+        tmp = buf.decode("utf-8")
+        tmp = tmp.split("\r\n\r\n")
+        # check json rpc
+        try:
+            request = json.loads(tmp[-1])
+            # make response
+            resbody = {"jsonrpc": "2.0", "result": "Access bbc1 over HTTP!", "id": request["id"]}
+            resbody = json.dumps(resbody)
+        except json.JSONDecodeError:
+            resbody = {"jsonrpc": "2.0", "error":{"code":-32700, "message":"Parse error"}, "id": "null"}
+            resbody = json.dumps(resbody)
+
+        res = self.make_http_res(resbody)
+        '''except Exception as e:
+            #TODO TMP for debug
+            status = "500 Internal Server Error"
+            resbody = {"jsonrpc": "2.0", "error":{"code":-1, "message":e.args[0]}, "id":request["id"]}
+            resbody = json.dumps(resbody)
+            res = self.make_http_res(resbody, status)
+        '''
+        return res
+
+    def make_http_res(self, resbody, status="200 OK"):
+        res = ("HTTP/1.1 " + status + "\n"
+        "Content-Type: application/json; charset=UTF-8\n\n"
+        + resbody)
+        print(res)
+        return res
+
+    # API fnction end
+
 
     def handler(self, socket, address):
         """
@@ -228,8 +266,8 @@ class BBcCoreService:
                     break
 
                 if self.http_check(buf):
-                    print("This is HTTP connection")
-
+                    res = self.rpc_api_handler(buf)
+                    socket.sendall(res.encode("utf-8"))
                     socket.shutdown(py_socket.SHUT_RDWR)
                     socket.close()
                     break
