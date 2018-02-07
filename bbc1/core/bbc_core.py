@@ -226,7 +226,7 @@ class BBcCoreService:
             return False, msg
 
     def hex2str(self, hex):
-        return base64.b64encode(hex).decode("utf-8")
+        return str(hex.decode("utf-8"))
 
     def rpc_proccess(self, request):
         if request["method"] == "bbc1_hello":
@@ -315,6 +315,7 @@ class BBcCoreService:
     def rpc_api_handler(self, buf):
         # get request body
         tmp = buf.decode("utf-8")
+        print(tmp)
         tmp = tmp.split("\r\n\r\n")
         # check json rpc
         res, msg = self.check_json_rpc_format(tmp[-1])
@@ -343,8 +344,8 @@ class BBcCoreService:
 
     def make_http_res(self, resbody, status="200 OK"):
         res = ("HTTP/1.1 " + status + "\n"
-        "Content-Type: application/json; charset=UTF-8\n\n"
-        + resbody)
+                "Access-Control-Allow-Origin: *\nContent-Type: application/json\ncharset=UTF-8\n\n"
+                + resbody)
         print(res)
         return res
 
