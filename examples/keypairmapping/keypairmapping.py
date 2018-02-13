@@ -69,15 +69,11 @@ def create_keymap_tx(user_id, approver_id, sig_keypair, pubkeys, ref_tx = None):
         transaction.events[a].asset.add(user_id=user_id, asset_body=pubkeys[a])
 
     if ref_tx:
-        #TODO it can verify any key in ref transaction
-        #if binascii.hexlify(sig_keypair.public_key) == binascii.hexlify(ref_tx.signatures[0].pubkey):
         reference = bbclib.add_reference_to_transaction(ASSET_GROUP_ID, transaction, ref_tx, 0)
         sig = transaction.sign(key_type=bbclib.KeyType.ECDSA_SECP256k1,
                                 private_key=sig_keypair.private_key,
                                 public_key=sig_keypair.public_key)
         transaction.references[0].add_signature(user_id=user_id, signature=sig)
-        #else:
-        #    return False
     else:
         sig = transaction.sign(key_type=bbclib.KeyType.ECDSA_SECP256k1,
                                 private_key=sig_keypair.private_key,
