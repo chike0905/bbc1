@@ -28,6 +28,8 @@ import binascii
 import traceback
 
 #for API
+import cgi
+from wsgiref.simple_server import make_server
 import textwrap
 import json
 import base64
@@ -54,7 +56,6 @@ INTERVAL_RETRY = 3
 
 ticker = query_management.get_ticker()
 core_service = None
-
 
 def make_message_structure(cmd, asgid, dstid, qid):
     """
@@ -137,6 +138,8 @@ class BBcCoreService:
         self.ledger_subsystem = ledger_subsystem.LedgerSubsystem(self.config, core=self, loglevel=loglevel, logname=logname)
 
         gevent.signal(signal.SIGINT, self.quit_program)
+        httpd = make_server('', 3000, self.request_perser)
+        httpd.serve_forever()
         if server_start:
             self.start_server(core_port, ipv6=ipv6)
 
@@ -201,17 +204,30 @@ class BBcCoreService:
         self.send_message(msg)
 
     #TODO function for api
-    def http_check(self, buf):
-        try:
-            tmp = buf.decode("utf-8")
-            tmp = tmp.splitlines()
-            tmp = tmp[0].split(" ")
-            if tmp[-1].count("HTTP"):
-                return True
+    def request_perser(self, environ, start_response):
+        wsgi_input = environ['wsgi.input']
+        content_length = int(environ["CONTENT_LENGTH"])
+        request = wsgi_input.read(content_length)
+
+        res, msg = self.check_json_rpc_format(request)
+        if res:
+            request = json.loads(request)
+            res, result = self.rpc_proccess(request)
+            if res:
+                resbody = {"jsonrpc": "2.0", "result": result, "id": request["id"]}
             else:
-                return False
-        except UnicodeDecodeError:
-            return False
+                resbody = {"jsonrpc": "2.0", "error": result, "id": request["id"]}
+        else:
+            resbody = {"jsonrpc": "2.0", "error":msg, "id": "null"}
+        strbody = json.dumps(resbody)
+        body = strbody.encode("utf-8")
+        status = '200 OK'
+        headers = [
+                ('Content-Type', 'application/json; charset=utf-8'),
+                ('Content-Length', str(len(body)))
+                ]
+        start_response(status, headers)
+        return [body]
 
     def check_json_rpc_format(self, requestbody):
         try:
@@ -225,9 +241,6 @@ class BBcCoreService:
             msg = {"code":-32600, "message":"Invalid Request"}
             return False, msg
 
-    def hex2str(self, hex):
-        return str(hex.decode("utf-8"))
-
     def rpc_proccess(self, request):
         if request["method"] == "bbc1_hello":
             result = "Access bbc1 over HTTP!"
@@ -240,115 +253,11 @@ class BBcCoreService:
             query_id = request["id"]
             res = self.search_transaction_by_txid(asset_group_id, txid, source_id, query_id)
             txobj = bbclib.recover_transaction_object_from_rawdata(res[KeyType.transaction_data])
-
-            #txobj to json
-            txdict = {}
-            if txobj.transaction_id is not None:
-                txdict["transaction_id"] = self.hex2str(binascii.b2a_hex(txobj.transaction_id))
-            else:
-                txdict["transaction_id"] = None
-            txdict["version"] = txobj.version
-            txdict["timestamp"] = txobj.timestamp
-            txdict["Event"] = []
-            if len(txobj.events) > 0:
-                for i, evt in enumerate(txobj.events):
-                    event = {}
-                    event["asset_group_id"] = self.hex2str(binascii.b2a_hex(evt.asset_group_id))
-                    event["reference_indices"] = evt.reference_indices
-                    event["mandatory_approvers"] = []
-                    if len(evt.mandatory_approvers) > 0:
-                        for user in evt.mandatory_approvers:
-                            event["mandatory_approvers"].append(self.hex2str(binascii.b2a_hex(user)))
-                    event["option_approvers"] = []
-                    if len(evt.option_approvers) > 0:
-                        for user in evt.option_approvers:
-                            event["option_approvers"] = self.hex2str(binascii.b2a_hex(user))
-                    event["option_approver_num_numerator"] = evt.option_approver_num_numerator
-                    event["option_approver_num_denominator"] = evt.option_approver_num_denominator
-                    event["Asset"] = {}
-                    event["Asset"]["asset_id"] = self.hex2str(binascii.b2a_hex(evt.asset.asset_id))
-                    if evt.asset.user_id is not None:
-                        event["Asset"]["user_id"] = self.hex2str(binascii.b2a_hex(evt.asset.user_id))
-                    else:
-                        event["Asset"]["user_id"] = None
-                    event["Asset"]["nonce"] = self.hex2str(binascii.b2a_hex(evt.asset.nonce))
-                    event["Asset"]["file_size"] = evt.asset.asset_file_size
-                    if evt.asset.asset_file_digest is not None:
-                        event["Asset"]["file_digest"] = self.hex2str(binascii.b2a_hex(evt.asset.asset_file_digest))
-                    event["Asset"]["body_size"] = evt.asset.asset_body_size
-                    event["Asset"]["body"] = self.hex2str(binascii.b2a_hex(evt.asset.asset_body))
-                    txdict["Event"].append(event)
-            txdict["Reference"] = []
-            if len(txobj.references) > 0:
-                for i, refe in enumerate(txobj.references):
-                    ref = {}
-                    ref["asset_group_id"] = self.hex2str(binascii.b2a_hex(refe.asset_group_id))
-                    ref["transaction_id"] = self.hex2str(binascii.b2a_hex(refe.transaction_id))
-                    ref["event_index_in_ref"] = refe.event_index_in_ref
-                    ref["sig_index"] = refe.sig_indices
-                    txdict["Reference"].append(ref)
-            txdict["Cross_Ref"] = {}
-            if len(txobj.cross_refs) > 0:
-                for i, cross in enumerate(txobj.cross_refs):
-                    crossref = {}
-                    crossref["asset_group_id"] = self.hex2str(binascii.b2a_hex(cross.asset_group_id))
-                    crossref["transaction_id"] = self.hex2str(binascii.b2a_hex(cross.transaction_id))
-                    txdict["Cross_ref"].append(crossref)
-            txdict["Signature"] = []
-            if len(txobj.signatures) > 0:
-                for i, sig in enumerate(txobj.signatures):
-                    sign = {}
-                    if sig is None:
-                        sign = "*RESERVED*"
-                        continue
-                    sign["type"] = sig.type
-                    sign["signature"] = self.hex2str(binascii.b2a_hex(sig.signature))
-                    sign["pubkey"] = self.hex2str(binascii.b2a_hex(sig.pubkey))
-                    txdict["Signature"].append(sign)
-            result = txdict
+            result = txobj.dumpjson()
         else:
             result = {"code": -32601,"message":"Method '"+request["method"]+"' not found"}
             return False, result
         return True, result
-
-
-    def rpc_api_handler(self, buf):
-        # get request body
-        tmp = buf.decode("utf-8")
-        print(tmp)
-        tmp = tmp.split("\r\n\r\n")
-        # check json rpc
-        res, msg = self.check_json_rpc_format(tmp[-1])
-        if res:
-            request = json.loads(tmp[-1])
-            res, result = self.rpc_proccess(request)
-            if res:
-                resbody = {"jsonrpc": "2.0", "result": result, "id": request["id"]}
-            else:
-                resbody = {"jsonrpc": "2.0", "error": result, "id": request["id"]}
-        else:
-            resbody = {"jsonrpc": "2.0", "error":msg, "id": "null"}
-
-        resbody = json.dumps(resbody)
-        res = self.make_http_res(resbody)
-
-        '''
-            #for debug
-            except Exception as e:
-            status = "500 Internal Server Error"
-            resbody = {"jsonrpc": "2.0", "error":{"code":-1, "message":e.args[0]}, "id":request["id"]}
-            resbody = json.dumps(resbody)
-            res = self.make_http_res(resbody, status)
-        '''
-        return res
-
-    def make_http_res(self, resbody, status="200 OK"):
-        res = ("HTTP/1.1 " + status + "\n"
-                "Access-Control-Allow-Origin: *\nContent-Type: application/json\ncharset=UTF-8\n\n"
-                + resbody)
-        print(res)
-        return res
-
     # API fnction end
 
 
@@ -369,13 +278,6 @@ class BBcCoreService:
                 wait_read(socket.fileno())
                 buf = socket.recv(8192)
                 if len(buf) == 0:
-                    break
-
-                if self.http_check(buf):
-                    res = self.rpc_api_handler(buf)
-                    socket.sendall(res.encode("utf-8"))
-                    socket.shutdown(py_socket.SHUT_RDWR)
-                    socket.close()
                     break
 
                 msg_parser.recv(buf)
@@ -1243,7 +1145,7 @@ if __name__ == '__main__':
         sys.exit(0)
     if argresult.daemon:
         daemonize()
-    BBcCoreService(
+    BBcCore = BBcCoreService(
         ipv6=argresult.ipv6,
         p2p_port=argresult.p2pport,
         core_port=argresult.coreport,
@@ -1255,3 +1157,4 @@ if __name__ == '__main__':
         logname=argresult.log,
         loglevel=argresult.verbose_level,
     )
+    

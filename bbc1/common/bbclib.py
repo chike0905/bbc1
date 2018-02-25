@@ -96,6 +96,8 @@ def convert_idstring_to_bytes(datastr, bytelen=32):
         res = bytearray([0]*(bytelen-len(res)))+res
     return bytes(res)
 
+def hex2str(hex):
+    return str(hex.decode("utf-8"))
 
 def make_transaction_for_base_asset(asset_group_id=None, event_num=1):
     transaction = BBcTransaction()
@@ -540,6 +542,71 @@ class BBcTransaction:
         else:
             print("  None")
 
+    def dumpjson(self):
+        txdict = {}
+        if self.transaction_id is not None:
+            txdict["transaction_id"] = hex2str(binascii.b2a_hex(self.transaction_id))
+        else:
+            txdict["transaction_id"] = None
+        txdict["version"] = self.version
+        txdict["timestamp"] = self.timestamp
+        txdict["Event"] = []
+        if len(self.events) > 0:
+            for i, evt in enumerate(self.events):
+                event = {}
+                event["asset_group_id"] = hex2str(binascii.b2a_hex(evt.asset_group_id))
+                event["reference_indices"] = evt.reference_indices
+                event["mandatory_approvers"] = []
+                if len(evt.mandatory_approvers) > 0:
+                    for user in evt.mandatory_approvers:
+                        event["mandatory_approvers"].append(hex2str(binascii.b2a_hex(user)))
+                event["option_approvers"] = []
+                if len(evt.option_approvers) > 0:
+                    for user in evt.option_approvers:
+                        event["option_approvers"] = hex2str(binascii.b2a_hex(user))
+                event["option_approver_num_numerator"] = evt.option_approver_num_numerator
+                event["option_approver_num_denominator"] = evt.option_approver_num_denominator
+                event["Asset"] = {}
+                event["Asset"]["asset_id"] = hex2str(binascii.b2a_hex(evt.asset.asset_id))
+                if evt.asset.user_id is not None:
+                    event["Asset"]["user_id"] = hex2str(binascii.b2a_hex(evt.asset.user_id))
+                else:
+                    event["Asset"]["user_id"] = None
+                event["Asset"]["nonce"] = hex2str(binascii.b2a_hex(evt.asset.nonce))
+                event["Asset"]["file_size"] = evt.asset.asset_file_size
+                if evt.asset.asset_file_digest is not None:
+                    event["Asset"]["file_digest"] = hex2str(binascii.b2a_hex(evt.asset.asset_file_digest))
+                event["Asset"]["body_size"] = evt.asset.asset_body_size
+                event["Asset"]["body"] = hex2str(binascii.b2a_hex(evt.asset.asset_body))
+                txdict["Event"].append(event)
+        txdict["Reference"] = []
+        if len(self.references) > 0:
+            for i, refe in enumerate(self.references):
+                ref = {}
+                ref["asset_group_id"] = hex2str(binascii.b2a_hex(refe.asset_group_id))
+                ref["transaction_id"] = hex2str(binascii.b2a_hex(refe.transaction_id))
+                ref["event_index_in_ref"] = refe.event_index_in_ref
+                ref["sig_index"] = refe.sig_indices
+                txdict["Reference"].append(ref)
+        txdict["Cross_Ref"] = {}
+        if len(self.cross_refs) > 0:
+            for i, cross in enumerate(self.cross_refs):
+                crossref = {}
+                crossref["asset_group_id"] = hex2str(binascii.b2a_hex(cross.asset_group_id))
+                crossref["transaction_id"] = hex2str(binascii.b2a_hex(cross.transaction_id))
+                txdict["Cross_ref"].append(crossref)
+        txdict["Signature"] = []
+        if len(self.signatures) > 0:
+            for i, sig in enumerate(self.signatures):
+                sign = {}
+                if sig is None:
+                    sign = "*RESERVED*"
+                    continue
+                sign["type"] = sig.type
+                sign["signature"] = hex2str(binascii.b2a_hex(sig.signature))
+                sign["pubkey"] = hex2str(binascii.b2a_hex(sig.pubkey))
+                txdict["Signature"].append(sign)
+        return txdict
 
 class BBcEvent:
     def __init__(self, asset_group_id=None):
