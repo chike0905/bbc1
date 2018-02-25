@@ -28,9 +28,9 @@ import binascii
 import traceback
 
 #for API
+import threading
 import cgi
 from wsgiref.simple_server import make_server
-import textwrap
 import json
 import base64
 
@@ -111,7 +111,7 @@ def check_transaction_if_having_asset_file(txdata, asid):
 class BBcCoreService:
     def __init__(self, ipv6=None, p2p_port=None, core_port=None, use_global=False, ip4addr=None, ip6addr=None,
                  workingdir=".bbc1", configfile=None,
-                 loglevel="all", logname="-", server_start=True):
+                 loglevel="all", logname="-", server_start=True, api_start=True):
         self.logger = logger.get_logger(key="core", level=loglevel, logname=logname)
         self.stats = bbc_stats.BBcStats()
         self.config = BBcConfig(workingdir, configfile)
@@ -136,10 +136,10 @@ class BBcCoreService:
                                                  external_ip4addr=ip4addr, external_ip6addr=ip6addr,
                                                  loglevel=loglevel, logname=logname)
         self.ledger_subsystem = ledger_subsystem.LedgerSubsystem(self.config, core=self, loglevel=loglevel, logname=logname)
-
         gevent.signal(signal.SIGINT, self.quit_program)
-        httpd = make_server('', 3000, self.request_perser)
-        httpd.serve_forever()
+        if api_start:
+            api_thread = threading.Thread(target=self.start_api_server)
+            api_thread.start()
         if server_start:
             self.start_server(core_port, ipv6=ipv6)
 
@@ -147,6 +147,13 @@ class BBcCoreService:
         self.networking.save_all_peer_lists()
         self.config.update_config()
         os._exit(0)
+
+    def start_api_server(self):
+        httpd = make_server('', 3000, self.request_perser)
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            pass
 
     def start_server(self, port, ipv6=False):
         pool = Pool(POOL_SIZE)
