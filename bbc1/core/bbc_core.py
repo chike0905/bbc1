@@ -242,9 +242,9 @@ class BBcCoreService:
             return False, msg
 
     def rpc_proccess(self, request):
-        if request["method"] == "bbc1_hello":
+        if request["method"] == "bbc1_Hello":
             result = "Access bbc1 over HTTP!"
-        elif request["method"] == "bbc1_config":
+        elif request["method"] == "bbc1_Config":
             result = self.config.get_config()
         elif request["method"] == "bbc1_GetTransaction":
             asset_group_id = binascii.unhexlify(request["params"]["asset_group_id"])
@@ -254,6 +254,8 @@ class BBcCoreService:
             res = self.search_transaction_by_txid(asset_group_id, txid, source_id, query_id)
             txobj = bbclib.recover_transaction_object_from_rawdata(res[KeyType.transaction_data])
             result = txobj.dumpjson()
+        elif request["method"] == "bbc1_InsertTransaction":
+            result = "Insert Transaction over HTTP!"
         else:
             result = {"code": -32601,"message":"Method '"+request["method"]+"' not found"}
             return False, result
