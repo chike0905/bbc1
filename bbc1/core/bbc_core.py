@@ -263,6 +263,16 @@ class BBcCoreService:
             result = txobj.dumpjson()
         elif request["method"] == "bbc1_InsertTransaction":
             result = "Insert Transaction over HTTP!"
+            asset_group_id = binascii.unhexlify(request["params"]["Event"][0]["asset_group_id"])
+            tx = bbclib.make_transaction_for_base_asset(asset_group_id=asset_group_id, event_num=len(request["params"]["Event"]))
+            for a in range(0,len(request["params"]["Event"])):
+                approver_id = binascii.unhexlify(request["params"]["Event"][a]["mandatory_approvers"][0])
+                tx.events[a].add(mandatory_approver=approver_id, asset_group_id=asset_group_id)
+                user_id = binascii.unhexlify(request["params"]["Event"][a]["Asset"]["user_id"])
+                body = binascii.unhexlify(request["params"]["Event"][a]["Asset"]["body"])
+                tx.events[a].asset.add(user_id=user_id, asset_body=body)
+                tx.events[a].asset.digest()
+            tx.dump()
         else:
             result = {"code": -32601,"message":"Method '"+request["method"]+"' not found"}
             return False, result
