@@ -298,8 +298,10 @@ class BBcCoreService:
                                 binascii.unhexlify(request["params"]["Signature"][i]["pubkey"]))
                         print(tx.references[i].add_signature(user_id, sig))
             tx = tx.serialize()
-            print(self.insert_transaction(asset_group_id, tx, None))
-
+            result = self.insert_transaction(asset_group_id, tx, None)
+            result = list(result.values())
+            txid = binascii.hexlify(result[0])
+            result = {"transaction_id": txid.decode("utf-8")}
         else:
             result = {"code": -32601,"message":"Method '"+request["method"]+"' not found"}
             return False, result
