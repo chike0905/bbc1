@@ -265,6 +265,7 @@ class BBcCoreService:
             result = "Insert Transaction over HTTP!"
             asset_group_id = binascii.unhexlify(request["params"]["Event"][0]["asset_group_id"])
             tx = bbclib.make_transaction_for_base_asset(asset_group_id=asset_group_id, event_num=len(request["params"]["Event"]))
+            # Add Events
             for a in range(0,len(request["params"]["Event"])):
                 approver_id = binascii.unhexlify(request["params"]["Event"][a]["mandatory_approvers"][0])
                 tx.events[a].add(mandatory_approver=approver_id, asset_group_id=asset_group_id)
@@ -272,7 +273,33 @@ class BBcCoreService:
                 body = binascii.unhexlify(request["params"]["Event"][a]["Asset"]["body"])
                 tx.events[a].asset.add(user_id=user_id, asset_body=body)
                 tx.events[a].asset.digest()
-            tx.dump()
+
+            if len(request["params"]["Reference"]) == 0:
+                tx.get_sig_index(user_id)
+                # Add Signature
+                for i in range(0, len(request["params"]["Signature"])):
+                    sig = bbclib.BBcSignature()
+                    sig.add(binascii.unhexlify(request["params"]["Signature"][i]["signature"]),
+                            binascii.unhexlify(request["params"]["Signature"][i]["pubkey"]))
+                    print(tx.add_signature(user_id, sig))
+            else:
+                # Add Reference
+                for i in range(0, len(request["params"]["Reference"])):
+                    asset_group_id = binascii.unhexlify(request["params"]["Reference"][i]["asset_group_id"])
+                    txid = binascii.unhexlify(request["params"]["Reference"][i]["transaction_id"])
+                    query_id = request["id"]
+                    res = self.search_transaction_by_txid(asset_group_id, txid, user_id, query_id)
+                    prev_tx = bbclib.recover_transaction_object_from_rawdata(res[KeyType.transaction_data])
+                    bbclib.add_reference_to_transaction(asset_group_id, tx, prev_tx, 0)
+                    # Add Signature
+                    for i in range(0, len(request["params"]["Signature"])):
+                        sig = bbclib.BBcSignature()
+                        sig.add(binascii.unhexlify(request["params"]["Signature"][i]["signature"]),
+                                binascii.unhexlify(request["params"]["Signature"][i]["pubkey"]))
+                        print(tx.references[i].add_signature(user_id, sig))
+            tx = tx.serialize()
+            print(self.insert_transaction(asset_group_id, tx, None))
+
         else:
             result = {"code": -32601,"message":"Method '"+request["method"]+"' not found"}
             return False, result
