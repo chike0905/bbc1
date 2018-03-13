@@ -299,6 +299,9 @@ class BBcCoreService:
                         print(tx.references[i].add_signature(user_id, sig))
             tx = tx.serialize()
             result = self.insert_transaction(asset_group_id, tx, None)
+            if not isinstance(result, dict):
+                result = {"code": 1, "message":result}
+                return False, result
             result = list(result.values())
             txid = binascii.hexlify(result[0])
             result = {"transaction_id": txid.decode("utf-8")}
